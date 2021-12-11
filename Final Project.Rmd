@@ -1,0 +1,300 @@
+---
+title: "Boston Marathon Finishers"
+author: "Julia Burek (jeb5pb)"
+date: 'Due Date: 11:59pm, Dec 6 (Mon)'
+output:
+  html_document:
+    theme: journal
+    number_sections: no
+    toc: yes
+    toc_float: yes
+    code_folding: hide
+  pdf_document:
+    toc: yes
+runtime: shiny
+resource_files:
+- archive-5/marathon_results_2015.csv
+- archive-5/marathon_results_2016.csv
+- archive-5/marathon_results_2017.csv
+- marathon/data2015.csv
+- marathon/data2016.csv
+- marathon/data2017.csv
+---
+
+<style>
+h1.title {
+  font-size: 30px;
+}
+h1 {
+  font-size: 26px;
+}
+h2 {
+  font-size: 22px;
+}
+h3 { 
+  font-size: 18px;
+}
+
+</style>
+
+
+# Questions
+1. What countries are the most represented at the Boston Marathon (besides the United States)?
+
+2. What states are the most represented at the Boston Marathon? 
+
+# Article
+The article is about the Boston Marathon and can be found [here](https://www.runnersworld.com/races-places/a19605700/boston-marathon-faq/). It is titled "Everything You Need to Know About the Boston Marathon" and is written by the Runner's World Editors. The article gives details about the 2021 race as well as some other information on the Boston Marathon. It is the oldest annual marathon in the world as well as the most prestigious for everyday runners. Each year, roughly 80 percent of participants are time qualifiers and roughly 20 percent are charity runners. The qualifying standards have changed over time, and the cut off is often below the standard. For example, marathoners had to run 7 minutes and 47 seconds faster than the qualifying time for their age and gender, showing that hitting your time standard does not guarantee a spot in this elite race. The Marathon also sets aside a few thousand spots for runners affiliated with one of the marathon's official charities. These runners do not have to run a qualifying time, but raise a certain amount for a specific charity. The race was first run in 1897, and has been run every year since. An interesting graphic about the history of the marathon can be found [here](https://www.runnersworld.com/races-places/a20784283/a-brief-history-of-the-boston-marathon/). According to this graphic, 87 countries were represented in 2015. I would like to explore just who makes up this elite race by looking at data on Boston Marathon Finishers for three different years. I think the plots I create will support the article's description of this world-renowned event as something that brings elite runners together from all around the world. I also would like to see the average time of finishers at the Boston Marathon and compare these times to the qualifying standards mentioned in the article.
+
+# Data
+The dataset is from Kaggle and can be found [here](https://www.kaggle.com/rojour/boston-results). The data is a list of the finishers of the Boston Marathon of 2015, 2016 and 2017. The dataset contains the name, age, gender, country, city and state (where available), times at 9 different stages of the race, expected time, finish time, pace, overall place, gender place, and division place. The data comes from the official marathon [website](https://www.baa.org). This data is relevant to the article as it provides supporting information about the elite group of runners who run in one of the most prestigious marathons in the world. After doing some data cleaning and validation, I will use this data to determine what countries and states are represented the most at the Boston Marathon. I will also use this data to explore the average finisher times for different ages.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE, warning=FALSE)
+library(tidyverse)
+library(ggmap)
+library(plotly)
+library(shiny)
+library(shinythemes)
+library(rsconnect)
+library(dplyr)
+library(readr)
+library(DT)
+
+rsconnect::setAccountInfo(name='julia-burek',
+			  token='781279EADF75E8A30FB50B6CD66A3A1F',
+			  secret='gbBrQZ9UcNSH9dGkyxxw//9xbYjS6QacUnkONtki')
+
+```
+
+```{r}
+# I am going to combine all three years of data because they were separate CSV files on Kaggle.
+data2015 <- read_csv("archive-5/marathon_results_2015.csv")
+data2016 <- read_csv("archive-5/marathon_results_2016.csv")
+data2017 <- read_csv("archive-5/marathon_results_2017.csv")
+
+# Get rid of irrelevant columns that are different variable types between the files that could cause issues when combining the CSV files.
+data2015 <- subset(data2015, select = -c(1,2,10))
+data2016 <- subset(data2016, select = -c(1,9))
+data2017 <- subset(data2017, select = -c(1,2,10))
+df <- rbind(data2015, data2016, data2017)
+
+DT::datatable(head(df, 100))
+```
+
+
+# Data Validation
+```{r}
+# Create two different datasets for plots later (USA and World)
+USA <- subset(df, select = -c(7:18))
+World <- subset(df, select = -c(7:18))
+
+usa <- df[complete.cases(USA),] # Drops NA values from dataset for USA
+usa <- usa[which(usa$Country=='USA'),] # Subset data to only USA runners
+
+# There are some states and U.S. territories that I am going to drop to avoid complications when creating a plot. 
+usa <- subset(usa, State!="AE" & State!="AA" & State!='GU' & State!='VI' & State!='AP' & State!='PR')
+
+
+# There are some repeated names in the dataset because some runners run in the marathon multiple years. I am not going to drop names, however, as I think including repeat runners does not take away from what I am trying to show in my plots. 
+length(df$Name) # There are 79,638 entries
+length(unique(df$`Name`)) # There are 67,341 unique entries
+```
+
+
+# Plot 1: World Map of Finishers
+I wanted to create a world map of where Boston Marathon finishers come from. As the Boston Marathon is a world-renowned marathon, I predict that many countries are represented at the Marathon with the United States being the most represented.
+```{r}
+# Finding the total count of finishers from each country
+worldtotals <- count(World, Country)
+names(worldtotals)[names(worldtotals) == 'n'] <- 'Total Runners'
+worlddata <- worldtotals 
+
+DT::datatable(worlddata) # Data table of the world data with total number of runners from each country
+
+
+# World Map of Finishers 
+ui = fluidPage(theme = shinytheme("united"),
+      plotlyOutput(outputId = "map")
+  )
+
+server = function(input, output) {
+  
+  # Add hover text
+  worlddata$hover <- with(worlddata, paste(Country, '<br>', "Total Runners:", `Total Runners`))
+
+  # Make country borders black
+  borders <- list(color = toRGB("black"))
+
+ output$map = renderPlotly({
+    plot_ly(worlddata, z = ~`Total Runners`, text = ~hover, locations = ~Country, 
+        type = 'choropleth',
+        color = ~`Total Runners`, 
+        colors = 'YlGnBu', 
+        marker = list(line = borders)) %>%
+     layout(title = 'Boston Marathon Finishers') %>% 
+     colorbar(title = "Number of Finishers", limits = c(1, 65000)) # fix the range of colorbar
+ })
+}
+
+shinyApp(ui, server, options = list(height=600))  
+```
+It is apparent from the data table and map that United States and Canada make up a large number of finishers in the marathon. I would like to see what other countries are well represented, so will remove USA and CAN from the totals data, so it is easier to visualize what other countries are represented in the marathon and to what capacity.
+
+```{r}
+# Remove USA and CAN from the data
+countries <- subset(worlddata, Country != 'USA' & Country != 'CAN')
+
+ui = fluidPage(theme = shinytheme("united"),
+      plotlyOutput(outputId = "map")
+  )
+
+server = function(input, output) {
+  
+  # Add hover text
+  countries$hover <- with(countries, paste(Country, '<br>', "Total Runners:", `Total Runners`))
+
+  # Make country borders black
+  borders <- list(color = toRGB("black"))
+
+ output$map = renderPlotly({
+    plot_ly(countries, z = ~`Total Runners`, text = ~hover, locations = ~Country, 
+        type = 'choropleth',
+        color = ~`Total Runners`, 
+        colors = 'YlGnBu', 
+        marker = list(line = borders)) %>%
+     layout(title = 'Boston Marathon Finishers') %>% 
+     colorbar(title = "Number of Finishers", limits = c(1, 1200)) # fix the range of colorbar
+ })
+}
+shinyApp(ui, server, options = list(height=700))  
+```
+This map helps visualize what countries other than the United States and Canada are represented at the Boston Marathon. Great Britain is the most represented among this group of countries with 1072 finishers. Mexico has 768 finishers. Nearly all of Europe is represented at the marathon. Brazil, Italy, China, Japan, and Australia are some other countries that are well represented. It is very interesting to see that runners come from all over the world to run in this elite race. I would assume even more countries are represented in the race today as this data was only up to 2017.
+
+# Plot 2: USA Map of Finishers
+As USA is the most represented country at the Boston Marathon, I want to see what states are represented the most at the Marathon.
+```{r}
+# Using usa data, find the total number of finishers from each state.
+usatotals <- count(usa, State)
+names(usatotals)[names(usatotals) == 'n'] <- 'Total Runners'
+
+# Data table of these states and their totals
+DT::datatable(usatotals)
+
+ui = fluidPage(theme = shinytheme("united"),
+  sliderInput(inputId = "runners", "Number of Finishers", min = 50, max = 14000, step = 500, value = 14000),
+      plotlyOutput(outputId = "map")
+  )
+
+server = function(input, output) {
+  
+  # Add hover text
+  usatotals$hover <- with(usatotals, paste(State, '<br>', "Total Runners:", `Total Runners`))
+
+  # Make state borders black
+  borders <- list(color = toRGB("black"))
+
+  # Change some mapping options
+  map_options <- list(
+    scope = 'usa',
+    projection = list(type = 'albers usa'),
+    showlakes = TRUE,
+    lakecolor = toRGB('white')
+  )
+
+ output$map = renderPlotly({
+    plot_ly(usatotals[usatotals$`Total Runners` <= input$runners, ], z = ~`Total Runners`, text = ~hover, locations = ~State, 
+        type = 'choropleth', locationmode = 'USA-states', 
+        color = ~`Total Runners`, 
+        colors = 'YlGnBu', 
+        marker = list(line = borders)) %>%
+     layout(title = 'Boston Marathon Finishers', geo = map_options) %>% 
+     colorbar(title = "Number of Finishers", limits = c(14000,50)) # fix the range of colorbar
+ })
+}
+ 
+shinyApp(ui, server, options = list(height=600))
+```
+Massachusetts is the most represented state at the Boston Marathon, which makes sense as this is where the marathon is held. I will create a map without Massachusetts to hopefully better visualize what other states are well represented at the marathon.
+```{r}
+# Remove Massachusetts from data.
+other <- subset(usatotals, State != 'MA')
+
+ui = fluidPage(theme = shinytheme("united"),
+  sliderInput(inputId = "runners", "Number of Finishers", min = 50, max = 6000, step = 200, value = 6000),
+      plotlyOutput(outputId = "map")
+  )
+
+server = function(input, output) {
+  
+  # Add hover text
+  other$hover <- with(other, paste(State, '<br>', "Total Runners:", `Total Runners`))
+
+  # Make state borders black
+  borders <- list(color = toRGB("black"))
+
+  # Change some mapping options
+  map_options <- list(
+    scope = 'usa',
+    projection = list(type = 'albers usa'),
+    showlakes = TRUE,
+    lakecolor = toRGB('white')
+  )
+
+ output$map = renderPlotly({
+    plot_ly(other[other$`Total Runners` <= input$runners, ], z = ~`Total Runners`, text = ~hover, locations = ~State, 
+        type = 'choropleth', locationmode = 'USA-states', 
+        color = ~`Total Runners`, 
+        colors = 'YlGnBu', 
+        marker = list(line = borders)) %>%
+     layout(title = 'Boston Marathon Finishers', geo = map_options) %>% 
+     colorbar(title = "Number of Finishers", limits = c(50,6000)) # fix the range of colorbar
+ })
+}
+ 
+shinyApp(ui, server, options = list(height=600))
+```
+After removing Massachusetts, it is more clear what other states are well represented. California is the next most represented state with 5931 finishers. Other states like New York, Texas, and Pennsylvania are also well represented at the marathon. It is interesting to see how every state is represented at the Boston Marathon. I also find it interesting that California has so much representation as it is across the country from Massachusetts. This goes to show just how elite and desired this marathon is for runners. 
+
+
+# Plot 3: Finisher's Average Time by Age and Gender
+I created another plot that looks at the relationship between a  finisher's time and age. I made a shiny input for male and female so the two groups could be distinguished. First, I grouped the marathon data by age and then found the average time for each age. 
+```{r}
+# Change data type to time for Official Time so average time can be calculated
+library(chron)
+World$time <- chron(times=World$`Official Time`)
+
+# Find average time after grouping by age and gender
+avgtime <- World %>%
+  group_by(Age, `M/F`) %>%
+  summarise_at(vars(time), list(name = mean))
+
+# Change column name in dataframe
+names(avgtime)[names(avgtime) == 'name'] <- 'Average Time'
+
+# Change data type to character
+avgtime$`Average Time` <- as.character(avgtime$`Average Time`)
+
+# Data table of finishers' average time by gender and age
+DT::datatable(avgtime)
+
+
+ui = fluidPage(theme = shinytheme("united"),
+  selectInput('gender', label='Gender', choices = c('Male', 'Female'), selected='Male'),
+      plotlyOutput(outputId = "plot")
+  )
+
+server <- function(input, output){
+  output$plot <- renderPlotly({
+    if (input$gender=='Male'){
+      ggplot(avgtime[avgtime$`M/F`=='M',], aes(x = `Average Time`, y = Age)) + geom_point(aes(color=`M/F`)) + scale_color_manual(values = c("M" = "blue", "F" = "pink")) + theme(axis.text.x = element_text(angle = 80, size=8), legend.position = "none") + scale_y_continuous(breaks=seq(18,86,4))  + labs(x='Average Time', y='Age', title='Finishers Average Time by Age')
+    }
+    else {
+      ggplot(avgtime[avgtime$`M/F`=='F',], aes(x = `Average Time`, y = Age)) + geom_point(aes(color=`M/F`)) + theme(axis.text.x = element_text(angle = 80, size=8), legend.position = "none") + scale_y_continuous(breaks=seq(18,86,4))  + labs(x='Average Time', y='Age', title='Finishers Average Time by Age')}}
+  )}
+
+shinyApp(ui, server, options = list(height=700))
+```
+There seems to be a linear relationship between age and time of finishers for both male and female. As age increases the average time also seems to increase. It is interesting to note that the relationship is not perfectly linear. This is seen especially in females as some of the younger age groups (18-25) have slower average times than women a bit older (30-40). I think it also interesting to see the average times are much slower than the times it takes to qualify for the marathon. For example, for the age group 18-34 for women, the qualifying time is 3:30:00. This is much faster than any average time for women. Although the Boston Marathon is an elite race, it is not necessarily the fastest marathon course. Many runners qualify for the Boston Marathon at faster courses elsewhere. 
+
